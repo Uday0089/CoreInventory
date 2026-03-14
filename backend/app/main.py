@@ -1,8 +1,9 @@
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import crud, models, schemas
+from . import crud, models, schemas, utils
 from .database import Base, engine, get_db
 
 
@@ -11,10 +12,81 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="CoreInventory API")
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login/verify")
+
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> models.User:
+    user_id = utils.decode_access_token(token)
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    user = crud.get_user(db, int(user_id))
+    if not user or not user.is_verified:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    return user
+
 
 @app.get("/", tags=["meta"])
 def root() -> dict:
     return {"message": "CoreInventory FastAPI backend is running."}
+
+
+# --- Auth ---
+
+@app.post("/auth/register", response_model=schemas.UserRead, status_code=201, tags=["auth"])
+def register(credentials: schemas.RegisterCredentials, db: Session = Depends(get_db)) -> schemas.UserRead:
+    if not utils.validate_name(credentials.firstName) or not utils.validate_name(credentials.lastName):
+        raise HTTPException(status_code=400, detail="Name must contain only letters and spaces")
+
+    if not utils.validate_password(credentials.password):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Password must be at least 6 characters and include 1 uppercase, 1 lowercase, 1 digit, and 1 symbol"
+            ),
+        )
+
+    if crud.get_user_by_email(db, credentials.email):
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    user = crud.create_user(db, credentials)
+    return user
+
+
+@app.post("/auth/login", response_model=schemas.AuthResponse, tags=["auth"])
+def login(credentials: schemas.LoginCredentials, db: Session = Depends(get_db)) -> schemas.AuthResponse:
+    user = crud.verify_user_password(db, credentials.email, credentials.password)
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid email or password")
+
+    token = utils.create_access_token(str(user.id))
+    return schemas.AuthResponse(access_token=token)
+
+
+@app.post("/auth/change-password", tags=["auth"])
+def change_password(request: schemas.ChangePasswordRequest, db: Session = Depends(get_db)) -> dict:
+    if not utils.validate_password(request.newPassword):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Password must be at least 6 characters and include 1 uppercase, 1 lowercase, 1 digit, and 1 symbol"
+            ),
+        )
+
+    success = crud.change_user_password(db, request.email, request.currentPassword, request.newPassword)
+    if not success:
+        raise HTTPException(status_code=400, detail="Invalid email or current password")
+
+    return {"message": "Password changed"}
+
+
+@app.get("/auth/me", response_model=schemas.UserRead, tags=["auth"])
+def read_current_user(current_user: models.User = Depends(get_current_user)) -> models.User:
+    return current_user
+
+
+@app.get("/auth/me", response_model=schemas.UserRead, tags=["auth"])
+def read_current_user(current_user: models.User = Depends(get_current_user)) -> models.User:
+    return current_user
 
 
 # --- Categories ---

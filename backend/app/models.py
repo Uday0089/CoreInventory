@@ -73,3 +73,18 @@ class StockMovement(Base):
 
     product = relationship("Product", back_populates="stock_movements")
     warehouse = relationship("Warehouse", back_populates="stock_movements")
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("email", name="uniq_users_email"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    first_name = Column(String(100), nullable=False)
+    last_name = Column(String(100), nullable=False)
+    email = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    is_verified = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, condecimal, constr
+from pydantic import BaseModel, EmailStr, condecimal, constr, validator
 
 
 class StockMovementType(str, Enum):
@@ -94,6 +94,55 @@ class StockMovementRead(BaseModel):
     change_qty: int
     type: StockMovementType
     note: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
+# --- Auth / Users ---
+
+class LoginCredentials(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class RegisterCredentials(BaseModel):
+    firstName: constr(min_length=1)
+    lastName: constr(min_length=1)
+    email: EmailStr
+    password: str
+    confirmPassword: str
+
+    @validator("confirmPassword")
+    def passwords_match(cls, v: str, values: dict) -> str:
+        if "password" in values and v != values["password"]:
+            raise ValueError("Passwords do not match")
+        return v
+
+
+class ChangePasswordRequest(BaseModel):
+    email: EmailStr
+    currentPassword: str
+    newPassword: str
+    confirmPassword: str
+
+    @validator("confirmPassword")
+    def passwords_match(cls, v: str, values: dict) -> str:
+        if "newPassword" in values and v != values["newPassword"]:
+            raise ValueError("Passwords do not match")
+        return v
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserRead(BaseModel):
+    id: int
+    first_name: str
+    last_name: str
+    email: str
 
     class Config:
         from_attributes = True

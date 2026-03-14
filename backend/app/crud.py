@@ -1,8 +1,9 @@
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
-from . import models, schemas
+from . import models, schemas, utils
 
 
 # ----- Categories -----
@@ -155,5 +156,48 @@ def delete_stock_movement(db: Session, movement_id: int) -> bool:
     if not db_obj:
         return False
     db.delete(db_obj)
+    db.commit()
+    return True
+
+
+# ----- Users / Auth -----
+
+def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
+    return db.query(models.User).filter(models.User.email == email).first()
+
+
+def get_user(db: Session, user_id: int) -> Optional[models.User]:
+    return db.query(models.User).filter(models.User.id == user_id).first()
+
+
+def create_user(db: Session, user_data: schemas.RegisterCredentials) -> models.User:
+    hashed_password = utils.hash_password(user_data.password)
+    db_obj = models.User(
+        first_name=user_data.firstName.strip(),
+        last_name=user_data.lastName.strip(),
+        email=user_data.email.lower(),
+        hashed_password=hashed_password,
+        is_verified=1,
+    )
+    db.add(db_obj)
+    db.commit()
+    db.refresh(db_obj)
+    return db_obj
+
+
+def verify_user_password(db: Session, email: str, password: str) -> Optional[models.User]:
+    user = get_user_by_email(db, email.lower())
+    if not user:
+        return None
+    if not utils.verify_password(password, user.hashed_password):
+        return None
+    return user
+
+
+def change_user_password(db: Session, email: str, current_password: str, new_password: str) -> bool:
+    user = verify_user_password(db, email, current_password)
+    if not user:
+        return False
+    user.hashed_password = utils.hash_password(new_password)
     db.commit()
     return True
